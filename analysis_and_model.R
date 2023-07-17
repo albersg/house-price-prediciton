@@ -1,12 +1,7 @@
-install.packages("tidyverse")
-install.packages("corrplot")
-install.packages("gridExtra")
-install.packages("lmtest")
-install.packages("tseries")
-install.packages("splitTools")
-install.packages("Metrics")
-install.packages("gbm")
+# Install required packages
+#install.packages(c("tidyverse", "corrplot", "gridExtra", "lmtest", "tseries", "splitTools", "Metrics", "gbm", "rpart", "randomForest", "e1071", "MASS", "forecast")
 
+# Load libraries
 library(tidyverse)
 library(corrplot)
 library(gridExtra)
@@ -16,28 +11,17 @@ library(dplyr)
 library(splitTools)
 library(Metrics)
 library(gbm)
+library(rpart)
+library(randomForest)
+library(e1071)
+library(MASS)
+library(forecast)
 
-headers <- c('CRIM', 'ZN', 'INDUS', 'CHAS', 'NOX', 'RM', 'AGE', 'DIS', 'RAD', 'TAX', 'PTRATION', 'B', 'LSTAT', 'PRICE')
+# Define column headers
+headers <- c('CRIM', 'ZN', 'INDUS', 'CHAS', 'NOX', 'RM', 'AGE', 'DIS', 'RAD', 'TAX', 'PTRATIO', 'B', 'LSTAT', 'PRICE')
 
-# We don't specify sep = " ", because the csv can be separated by a variable amount of spaces
-# (one or more), so with sep = "", R knows that can find one or more whites.
-df <- read.table('../house_prices_prediciton/housing.csv', col.names = headers)
-
-
-# CRIM: Per capita crime rate by town.
-# ZN: Proportion of residential land zoned for lots over 25,000 sq.ft.
-# INDUS: Proportion of non-retail business acres per town.
-# CHAS: Charles River dummy variable (= 1 if tract bounds river; 0 otherwise).
-# NOX: Nitric oxides concentration (parts per 10 million).
-# RM: Average number of rooms per dwelling.
-# AGE: Proportion of owner-occupied units built prior to 1940.
-# DIS: Weighted distances to five Boston employment centres.
-# RAD: Index of accessibility to radial highways.
-# TAX: Full-value property-tax rate per $10,000.
-# PTRATIO: Pupil-teacher ratio by town.
-# B: 1000(Bk - 0.63)^2 where Bk is the proportion of blacks by town.
-# LSTAT: Percentage of lower status of the population.
-# MEDV: Median value of owner-occupied homes in $1000's.
+# Read the dataset
+df <- read.table('../house_prices_prediciton/housing.csv', col.names = headers, sep = "")
 
 # Check the dimensions of the dataset
 dim(df)
@@ -45,32 +29,26 @@ dim(df)
 # Check the types of the data
 str(df)
 
-# NaN values are always a problem. Let's see if there are any of them.
+# Check for NaN values
 sum(is.na(df))
 
-# No NaN values, great!
-
+# Summary statistics of the dataset
 summary(df)
 
-m<-cor(df)
-corrplot(m, method="number")
+# Calculate correlation matrix
+m <- cor(df)
+corrplot(m, method = "number")
 
+# Extract the highest correlations from the matrix
+m[lower.tri(m, diag = TRUE)] <- NA
+m <- as.data.frame(as.table(m))
+m <- na.omit(m)
+m <- m[order(-abs(m$Freq)),]
 
-# Let's the highest correlations in the matrix, in a list format
-# https://stackoverflow.com/questions/7074246/show-correlations-as-an-ordered-list-not-as-a-large-matrix
-
-m[lower.tri(m,diag=TRUE)]=NA  #Prepare to drop duplicates and meaningless information
-m=as.data.frame(as.table(m))  #Turn into a 3-column table
-m=na.omit(m)  #Get rid of the junk we flagged above
-m=m[order(-abs(m$Freq)),]    #Sort by highest correlation (whether +ve or -ve)
-
-
-# The most significant values are the next ones
+# Print correlations with absolute values greater than 0.5
 subset(m, abs(Freq) > 0.5)
 
-# Mainly, RAD-TAX, NOX-DIS and INDUX-NOX are some of the higher
-# values that we have in the correlation matrix, higher that 0.75
-
+# Create boxplot for each variable
 plots <- df %>% 
   pivot_longer(cols = -PRICE) %>% 
   ggplot(aes(x = name, y = value)) +
@@ -78,9 +56,9 @@ plots <- df %>%
   facet_wrap(~name, scales = "free") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   labs(x = "Variable", y = "Value")
-
 print(plots)
 
+# Create histogram for each variable
 plots <- df %>% 
   pivot_longer(cols = -PRICE) %>% 
   ggplot(aes(x = value)) +
@@ -88,51 +66,55 @@ plots <- df %>%
   facet_wrap(~name, scales = "free") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   labs(x = "Value", y = "Frequency")
-
 print(plots)
 
-# Like we can see in both graphics, the RM column has almost a normal distribution.
-
-# We saw in the correlation matrix that the two variables with higher values with Price
-# were LSTAT and RM
-
+# Fit linear regression models and compare them
 model_rm <- lm(PRICE ~ RM, data = df)
 model_lstat <- lm(PRICE ~ LSTAT, data = df)
-
 summary(model_lstat)
 
-# LSTAT has a higher R^2, and a lower "Residual standard error", so that is the selected model
-
+# Visualize the relationship between LSTAT and PRICE
 df %>% 
   ggplot(aes(x = LSTAT, y = PRICE)) +
   geom_point() +
   geom_smooth(method = "lm", se = FALSE, color = "red") +
-  labs(x = "RM", y = "PRICE")
-
+  labs(x = "LSTAT", y = "PRICE")
 plot(model_lstat)
 
-# We have seen simple models with one unique variable trying to predict the price.
-# Now, we are going to try to get better results.
-
-
-# Let's the most related with Price
-
-m_filtered <- m %>% 
+# Select important variables and split the dataset into train, validation, and test sets
+m_filtered <- m %>%
   filter(Var1 == "PRICE" | Var2 == "PRICE")
 
-# Get only the most important variables
+# Apply Box-Cox transformation to the selected variables
+lambda_PRICE <- BoxCox.lambda(df$PRICE, method = "loglik", lower = -5, upper = 5)
+lambda_RM <- BoxCox.lambda(df$RM, method = "loglik", lower = -5, upper = 5)
+lambda_LSTAT <- BoxCox.lambda(df$LSTAT, method = "loglik", lower = -5, upper = 5)
+lambda_PTRATIO <- BoxCox.lambda(df$PTRATIO, method = "loglik", lower = -5, upper = 5)
 
-df <- df %>% select(RM, LSTAT, PTRATION, PRICE)
+# Transformed variables
+PRICE_BC <- BoxCox(df$PRICE, lambda_PRICE)
+RM_BC <- BoxCox(df$RM, lambda_RM)
+LSTAT_BC <- BoxCox(df$LSTAT, lambda_LSTAT)
+PTRATIO_BC <- BoxCox(df$PTRATIO, lambda_PTRATIO)
 
-# Split in train, validation and set
+# Add transformed variables to the dataframe
+df$PRICE_BC <- PRICE_BC
+df$RM_BC <- RM_BC
+df$LSTAT_BC <- LSTAT_BC
+df$PTRATIO_BC <- PTRATIO_BC
 
+# Select variables for the models
+df_selected <- df %>% 
+  dplyr::select(PRICE_BC, RM_BC, LSTAT_BC, PTRATIO_BC, PRICE, RM, LSTAT, PTRATIO)
+
+# Split into train, validation, and test sets
 set.seed(123)
 
 train_percentage <- 0.7
 validation_percentage <- 0.2
 test_percentage <- 0.1
 
-num_rows <- nrow(df)
+num_rows <- nrow(df_selected)
 num_train <- floor(train_percentage * num_rows)
 num_validation <- floor(validation_percentage * num_rows)
 num_test <- num_rows - num_train - num_validation
@@ -142,28 +124,75 @@ remaining_indices <- setdiff(seq_len(num_rows), train_indices)
 validation_indices <- sample(remaining_indices, size = num_validation)
 test_indices <- setdiff(remaining_indices, validation_indices)
 
-train_set <- df[train_indices, ]
-validation_set <- df[validation_indices, ]
-test_set <- df[test_indices, ]
+train_set <- df_selected[train_indices, ]
+validation_set <- df_selected[validation_indices, ]
+test_set <- df_selected[test_indices, ]
 
-linear_model <- lm(PRICE ~ .,data=train_set) 
-prediction = predict(linear_model, test_set[, 1:3])
+# Find optimal n.trees for Gradient Boosting
+gbm_fit <- gbm(PRICE ~ RM + LSTAT + PTRATIO, 
+               data = train_set, 
+               distribution = "gaussian",
+               n.trees = 10000,
+               interaction.depth = 4,
+               shrinkage = 0.01,
+               cv.folds = 5)
 
-lm_rmse <- rmse(test_set$PRICE, prediction)
+# Get optimal n.trees value
+optimal_ntrees <- gbm.perf(gbm_fit, method = "cv")
 
-gradient_boost <- gbm(PRICE ~ . ,data = train_set, distribution = "gaussian", 
-                      n.trees = 10000, shrinkage = 0.01,  interaction.depth = 4)
+# Models with original variables
+model_lm_orig <- lm(PRICE ~ RM + LSTAT + PTRATIO, data = train_set)
+prediction_lm_orig <- predict(model_lm_orig, test_set)
+rmse_lm_orig <- rmse(test_set$PRICE, prediction_lm_orig)
 
-n.trees = seq(from=100 ,to=10000, by=100) 
+model_gb_orig <- gbm(PRICE ~ RM + LSTAT + PTRATIO, data = train_set, distribution = "gaussian", n.trees = optimal_ntrees, shrinkage = 0.01, interaction.depth = 4)
+prediction_gb_orig <- predict(model_gb_orig, test_set, n.trees = optimal_ntrees)
+rmse_gb_orig <- rmse(test_set$PRICE, prediction_gb_orig)
 
-pred_matrix <- predict(gradient_boost, test_set[, 1:3],n.trees = n.trees)
+model_tree_orig <- rpart(PRICE ~ RM + LSTAT + PTRATIO, data = train_set)
+prediction_tree_orig <- predict(model_tree_orig, test_set)
+rmse_tree_orig <- rmse(test_set$PRICE, prediction_tree_orig)
 
-rmses <- apply(pred_matrix,2,function(p){
-  rmse(test_set$PRICE,p)
-})
+model_rf_orig <- randomForest(PRICE ~ RM + LSTAT + PTRATIO, data = train_set)
+prediction_rf_orig <- predict(model_rf_orig, test_set)
+rmse_rf_orig <- rmse(test_set$PRICE, prediction_rf_orig)
 
-plot(rmses)
+model_svm_orig <- svm(PRICE ~ RM + LSTAT + PTRATIO, data = train_set)
+prediction_svm_orig <- predict(model_svm_orig, test_set)
+rmse_svm_orig <- rmse(test_set$PRICE, prediction_svm_orig)
 
-lowest_rmse <- min(rmses)
+# Models with transformed variables
+model_lm_transformed <- lm(PRICE_BC ~ RM_BC + LSTAT_BC + PTRATIO_BC, data = train_set)
+prediction_lm_transformed <- predict(model_lm_transformed, test_set)
+rmse_lm_transformed <- rmse(test_set$PRICE_BC, prediction_lm_transformed)
 
+model_gb_transformed <- gbm(PRICE_BC ~ RM_BC + LSTAT_BC + PTRATIO_BC, data = train_set, distribution = "gaussian", n.trees = optimal_ntrees, shrinkage = 0.01, interaction.depth = 4)
+prediction_gb_transformed <- predict(model_gb_transformed, test_set, n.trees = optimal_ntrees)
+rmse_gb_transformed <- rmse(test_set$PRICE_BC, prediction_gb_transformed)
 
+model_tree_transformed <- rpart(PRICE_BC ~ RM_BC + LSTAT_BC + PTRATIO_BC, data = train_set)
+prediction_tree_transformed <- predict(model_tree_transformed, test_set)
+rmse_tree_transformed <- rmse(test_set$PRICE_BC, prediction_tree_transformed)
+
+model_rf_transformed <- randomForest(PRICE_BC ~ RM_BC + LSTAT_BC + PTRATIO_BC, data = train_set)
+prediction_rf_transformed <- predict(model_rf_transformed, test_set)
+rmse_rf_transformed <- rmse(test_set$PRICE_BC, prediction_rf_transformed)
+
+model_svm_transformed <- svm(PRICE_BC ~ RM_BC + LSTAT_BC + PTRATIO_BC, data = train_set)
+prediction_svm_transformed <- predict(model_svm_transformed, test_set)
+rmse_svm_transformed <- rmse(test_set$PRICE_BC, prediction_svm_transformed)
+
+# Create error (RMSE) comparison table
+model_names <- c("Linear Regression", "Gradient Boosting", "Decision Tree", "Random Forest", "SVM")
+rmse_values_orig <- c(rmse_lm_orig, rmse_gb_orig, rmse_tree_orig, rmse_rf_orig, rmse_svm_orig)
+rmse_values_transformed <- c(rmse_lm_transformed, rmse_gb_transformed, rmse_tree_transformed, rmse_rf_transformed, rmse_svm_transformed)
+
+comparison <- data.frame(Model = model_names, RMSE_Original = rmse_values_orig, RMSE_Transformed = rmse_values_transformed)
+comparison
+
+#         Model         RMSE_Original  RMSE_Transformed
+# 1 Linear Regression      6.292968        0.4432498
+# 2 Gradient Boosting      4.453148        0.3965086
+# 3     Decision Tree      4.621702        0.4086809
+# 4     Random Forest      4.554756        0.3951336
+# 5               SVM      4.838435        0.3967701
