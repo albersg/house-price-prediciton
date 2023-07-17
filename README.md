@@ -48,16 +48,6 @@ The dataset used for this analysis is "housing.csv". It includes the following c
    - Compare the RMSE values of all the models.
    - Create a table summarizing the performance of each model.
 
-## Usage
-
-1. Clone the repository or download the R script file.
-
-2. Install the required R packages specified in the script.
-
-3. Place the "housing.csv" dataset in the appropriate directory or modify the file path in the script.
-
-4. Run the script in your R environment or IDE.
-
 ## Results
 
 The script provides a comprehensive analysis of house price prediction using different regression models. It compares the performance of linear regression, gradient boosting, decision tree, random forest, and support vector machine models. The RMSE values are calculated to assess the accuracy of the predictions.
@@ -70,9 +60,3 @@ Please refer to the script and the generated outputs for detailed results and vi
 
 This project is licensed under the [MIT License](LICENSE).
 
-## Acknowledgments
-
-- The dataset used in this analysis is from the UCI Machine Learning Repository.
-- The R packages used in this script provide essential functions for data analysis and modeling.
-
-Feel free to modify and enhance this script according to your specific requirements and use it as a starting point for your own house price prediction tasks.
